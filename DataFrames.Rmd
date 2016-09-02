@@ -1,0 +1,213 @@
+---
+title: "Common Data Frame Operations"
+author: "Alvaro Fuentes"
+output: html_document
+---
+## Creation
+
+Let's create a data frame of a classroom with 100 students.
+
+```{r, warning=FALSE, message=FALSE}
+# Loading libraries
+library(dplyr)
+
+# Creating a Data Frame
+student <- paste0("student_",1:100)
+gender <- sample(c("M","F"), size = 100, prob = c(0.4,0.6), replace = TRUE)
+attendance <- sample(c("Good","Bad"), size = 100, prob = c(0.8,0.2), replace = TRUE)
+behavior <- sample(c("Bad","Good","Excellent"), size = 100, prob = c(0.2,0.2,0.6), replace = TRUE)
+grade_1 <- rnorm(n = 100, mean = 75, 10)
+grade_2 <- rnorm(n = 100, mean = 80, 10)
+grade_3 <- rnorm(n = 100, mean = 83, 10)
+
+final_grade <- 0.3*grade_1 + 0.3*grade_2 + 0.4*grade_3
+
+df <- data.frame(Student =student, Gender = gender, Attendance = attendance,
+                 Grade1 = grade_1, Grade2 = grade_2, Grade3 = grade_3,
+                 Final = final_grade, Behavior = behavior,
+                 stringsAsFactors = FALSE)
+
+# Loading an existing data frame
+path_to_file <- 'C:\\Users\\Alvaro\\Desktop\\DS\\Data\\DiabetesR.csv'
+
+diabetes <- read.csv(path_to_file, stringsAsFactors = FALSE)
+
+```
+
+# Dealing with factors
+
+```{r}
+df$Gender <- factor(df$Gender, levels = c("F","M"), labels = c("Female","Male"))
+
+df$Attendance <- factor(df$Attendance, levels = c("Bad", "Good"), ordered = TRUE)
+
+df$Attendance <- factor(df$Attendance, levels = c("Bad", "Good"), ordered = TRUE)
+
+df$Behavior <- factor(df$Behavior, levels = c("Bad","Good","Excellent"), ordered = TRUE)
+
+diabetes$gender <- factor(diabetes$gender, levels = c("male","female"), labels = c("Male","Female"))
+
+# Incorrect! 
+#diabetes$frame <- factor(diabetes$frame, labels = c("Small","Medium","Large"))
+
+diabetes$frame <- factor(diabetes$frame, levels = c("small","medium","large"), labels = c("Small","Medium","Large"), ordered = TRUE)
+
+
+```
+
+
+# Summaries and other simple operations
+
+```{r}
+# Inspecting the data frame
+head(diabetes)
+tail(diabetes)
+names(diabetes)
+dim(diabetes)
+View(diabetes)
+str(diabetes)
+summary(diabetes)
+
+#Changing the name of a variable (column)
+names(diabetes)[3] <- "stab.Glucose"
+names(diabetes)
+
+# Number of NA's per column and row
+
+apply(diabetes, MARGIN = 2, function(x) sum(is.na(x))) #cols
+apply(diabetes, MARGIN = 1, function(x) sum(is.na(x))) #rows
+
+# Deleting a column
+ncol(diabetes)
+diabetes$glyhb <- NULL
+ncol(diabetes)
+names(diabetes)
+
+# Creating a column
+diabetes$random <- round(rnorm(n = nrow(diabetes)),2)
+
+```
+
+# Indexing
+
+```{r}
+diabetes <- tbl_df(diabetes) # Nice printing propierties
+
+# Getting one column
+diabetes$Cholesterol  # vector
+diabetes[['Cholesterol']]  # vector
+diabetes['Cholesterol'] # data frame of one column
+select(diabetes, Cholesterol) # data frame of one column #dplyr
+
+# Multiple columns
+diabetes[c('Cholesterol','age','frame')]
+select(diabetes, Cholesterol, age, frame) #dplyr
+
+# One cell
+diabetes[2,2]
+diabetes[2,'Cholesterol']
+
+# Sub table
+diabetes[10:25,c('Cholesterol','age','frame')]
+diabetes[10:25,c(2,6,10)]
+select(diabetes, Cholesterol, age, frame) %>% slice(10:25) #dplyr
+
+# Logical Filtering
+diabetes[diabetes$age > 60 & diabetes$gender=='male',] # Empty means "all"
+filter(diabetes, age > 60, gender == 'male')
+
+```
+
+## Useful operations
+
+```{r}
+#Spliting 
+diabetes_by_frame <- split(diabetes, f = diabetes$frame)
+head(diabetes_by_frame$Small)
+
+#Binding two data frames
+
+diabetes_no_small <- rbind(diabetes_by_frame$Medium,diabetes_by_frame$Large)
+
+# Some annoying things can happen with factors and its levels.
+table(diabetes_no_small$frame)
+# This drops the levels with zero count
+diabetes_no_small$frame <- factor(diabetes_no_small$frame)
+table(diabetes_no_small$frame)
+
+# Sorting
+head(diabetes[order(diabetes$Cholesterol, decreasing = TRUE),1:5],10)
+head(diabetes[order(diabetes$frame, diabetes$stab.Glucose),1:10], 10)
+arrange(diabetes, frame, stab.Glucose) %>% slice(1:10) #dplyr
+arrange(diabetes, frame, desc(stab.Glucose)) %>% slice(1:10) #dplyr
+
+# If you get tired of typing diabetes$VariableName
+attach(diabetes)
+detach(diabetes) #When done
+```
+
+
+## Calculations
+
+```{r, warning=FALSE}
+numeric_vars <- sapply(diabetes,is.numeric)
+means_diabetes <- sapply(diabetes[,numeric_vars], mean, na.rm = TRUE)
+
+#Table of means by frames
+means_by_frame <- function(variable){
+    return(tapply(variable, diabetes$frame, mean, na.rm = TRUE))
+}
+means_by_frame <- lapply(diabetes[,numeric_vars], FUN = means_by_frame)
+
+means_by_frame <- t(data.frame(means_by_frame))
+means_by_frame
+
+# The dplyr aproach, is it better? or more complicated...
+
+means_by_frame2 <- filter(diabetes, !is.na(frame)) %>% 
+    group_by(frame) %>% 
+    select(one_of(names(diabetes)[numeric_vars])) %>%
+    summarise_each(funs(mean(.,na.rm = TRUE)))
+
+rownames(means_by_frame2) <- means_by_frame2$frame
+means_by_frame2$frame <- NULL
+means_by_frame2 <- t(means_by_frame2)
+means_by_frame2
+```
+
+```{r, warning=FALSE, fig.height=6, fig.width=8}
+
+
+
+fast_viz <- function(df){
+    par(mfrow=c(2,2))
+    vars <- names(df)
+    numeric_vars <- sapply(df,is.numeric)
+    factor_vars <-  sapply(df,is.factor)
+    for(var in vars[numeric_vars]){
+        hist(df[[var]], main = var, xlab = var)
+    }
+    for(var in vars[factor_vars]){
+        barplot(table(df[[var]]), main = var, xlab = var)
+    }
+    par(mfrow=c(1,1))
+}
+
+fast_viz(diabetes)
+
+fast_viz_fancy <- function(df){
+    vars <- names(df)
+    numeric_vars <- sapply(df,is.numeric)
+    factor_vars <-  sapply(df,is.factor)
+    for(var in vars[numeric_vars]){
+        p <- ggplot(df) + geom_histogram(aes_string(var), fill = 'steelblue2', color = 'black') + theme_bw()
+        print(p)
+    }
+    for(var in vars[factor_vars]){
+        p <- ggplot(df) + geom_bar(aes_string(var), stat = 'count', fill = 'steelblue2') + theme_bw()
+        print(p)
+    }
+}
+
+
+```
